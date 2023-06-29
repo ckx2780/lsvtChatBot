@@ -1,12 +1,14 @@
-import pinecone
+#import pinecone
 import os
 import json
+import openai
 
 from langchain.vectorstores import Pinecone
 from langchain.document_loaders import UnstructuredURLLoader
 from langchain.text_splitter import TokenTextSplitter
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
+from langchain.document_loaders import PyPDFLoader
 
 # LOCAL STUFF
 # Set Key Variables
@@ -38,11 +40,13 @@ END Pinecone Setup
 # Opens the file and reads the URLs
 #with open('./urls.txt', 'r') as file:
         #urls = [line.strip() for line in file]
-pdf_path = "/whirlpool-dishwasher.pdf"
+pdf_path = "./whirlpool-dishwasher.pdf"
 
 # Loads the list of URLS and all the text (Consider using Selenium URL loader)
 #loader = UnstructuredURLLoader(urls=urls)
 #kb_data = loader.load()
+loader = PyPDFLoader(pdf_path)
+pages = loader.load_and_split()
 
 # Second, split the text into chunks, using Tiktoken
 #text_splitter = TokenTextSplitter(chunk_size=1000, chunk_overlap=100)
@@ -52,4 +56,7 @@ pdf_path = "/whirlpool-dishwasher.pdf"
 embeddings = OpenAIEmbeddings()
 
 # Store in the DB
-kb_db_store = Pinecone.from_documents(kb_docs, embeddings, index_name=index_name, namespace="lsvt")
+#kb_db_store = Pinecone.from_documents(kb_docs, embeddings, index_name=index_name, namespace="lsvt")
+vectordb = Chroma.from_documents(pages, embedding=embeddings,
+                                 persist_directory=".")  # Load the pdf into the Chroma database
+vectordb.persist()

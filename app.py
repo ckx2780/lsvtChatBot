@@ -1,23 +1,50 @@
-import pinecone
+#import pinecone
 import promptlayer
 import os
+import json
 import gradio as gr
 import re
+import openai
 
-from langchain.vectorstores import Pinecone
+#from langchain.vectorstores import Pinecone
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.chat_models import PromptLayerChatOpenAI
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
+from langchain.vectorstores import Chroma
+from langchain.document_loaders import PyPDFLoader
 
 
 # LOCAL STUFF
 # Set Key Variables
-from dotenv import load_dotenv
-load_dotenv()
-promptlayer.api_key = os.getenv("PROMPTLAYER_API_KEY")
-pinecone.api_key = os.getenv("PINECONE_API_KEY")
+#from dotenv import load_dotenv
+#load_dotenv()
+#promptlayer.api_key = os.getenv("PROMPTLAYER_API_KEY")
+#pinecone.api_key = os.getenv("PINECONE_API_KEY")
+root = "/Users/christienkerbert/Desktop/"
+with open(f'{root}api_keys.json', 'r') as inp:
+  keys = json.load(inp)
+
+openai.organization = "org-8oWTVWLA0ES5yhsucMCuX5c0"
+openai.api_key = keys['openai']['api_key']
+os.environ['OPENAI_API_KEY'] = keys['openai']['api_key']
+promptlayer.api_key = keys['promptlayer']['api_key']
+os.environ['PROMPTLAYER_API_KEY'] = keys['promptlayer']['api_key']
 # END LOCAL STUFF
+
+pdf_path = "./whirlpool-dishwasher.pdf"
+
+# Loads the list of URLS and all the text (Consider using Selenium URL loader)
+loader = PyPDFLoader(pdf_path)
+pages = loader.load_and_split()
+
+# Create the embeddings
+embeddings = OpenAIEmbeddings()
+
+# Store in the DB
+vectordb = Chroma.from_documents(pages, embedding=embeddings,
+                                 persist_directory=".")  # Load the pdf into the Chroma database
+vectordb.persist()
 
 # Prompt Template & Messages
 _template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question.
@@ -27,9 +54,14 @@ Follow Up Input: {question}
 Standalone question:"""
 CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
 
-template = """Based on the context provided, provide an answer to the best of your knowledge.
-Use your skills to determine what kind of context is provided and tailor your response accordingly. 
-When providing an answer, choose the tone of voice and humor of Zapp Brannigan from Futurama. Also, use html bullet list format when needed.
+template = """You are an AI maintenance intake chatbot called Max. 
+Max coaches residents through resolving their issues with appliances based on the symptom it receives from the resident and context from appliances' manuals.
+When providing an answer, choose a casual but helpful tone of voice. 
+Max ensures the resident is always safe and doesn't perform any actions that require specialized knowledge, such as touching electrical wiring.
+Assume the resident doesn't own replacement parts except for light bulbs.
+Don't ask the resident to contact a professional themselves.
+End the conversation by asking if the proposed solution worked.
+Use html bullet list format when needed.
 Question: {question}
 =========
 {context}
@@ -38,24 +70,24 @@ Question: {question}
 QA_PROMPT = PromptTemplate(template=template, input_variables=["question", "context"])
 
 # Initialize Pinecone
-pinecone.init(
-    environment="us-central1-gcp"
-)
-index_name = "support-kb"
+#pinecone.init(
+#    environment="us-central1-gcp"
+#)
+#index_name = "support-kb"
 
 # Replace kb_db_store initialization with Pinecone.from_existing_index method
-embeddings = OpenAIEmbeddings()
-kb_db = Pinecone.from_existing_index(index_name=index_name, embedding=embeddings, namespace="lsvt")
+#embeddings = OpenAIEmbeddings()
+#kb_db = Pinecone.from_existing_index(index_name=index_name, embedding=embeddings, namespace="lsvt")
 
 
 # Third, we need to create the prompt
 # Initialize the ChatVectorDBChain
 kb_chat = ConversationalRetrievalChain.from_llm(
     PromptLayerChatOpenAI(temperature=0, model_name="gpt-3.5-turbo", pl_tags=["local", "customTemp7"]),
-    retriever=kb_db.as_retriever(search_kwargs={"k": 3}),    
+    retriever=vectordb.as_retriever(),
     verbose=True, 
     return_source_documents=True,
-    qa_prompt=QA_PROMPT,
+    combine_docs_chain_kwargs={'prompt': QA_PROMPT},
     condense_question_prompt=CONDENSE_QUESTION_PROMPT,
 )
 
@@ -103,7 +135,7 @@ with gr.Blocks() as demo:
             lines=2,
         )
         submit = gr.Button(value="Submit", variant="primary").style(full_width=False)
-        clear = gr.Button("Clear", style="secondary").style(full_width=False)
+        clear = gr.Button("Clear").style(full_width=False)
 
     gr.Examples(
         examples = [
@@ -128,4 +160,5 @@ with gr.Blocks() as demo:
         submit
         clear
 
-demo.launch()
+demo.launch(share=True)
+#get_answer("My dishwasher is not draining. What can I do?")
